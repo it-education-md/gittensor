@@ -17,6 +17,7 @@ import click
 
 from .helpers import (
     console,
+    format_alpha,
     get_contract_address,
     normalize_ss58_address,
     resolve_network,
@@ -122,7 +123,7 @@ def admin_cancel(issue_id: int, network: str, rpc_url: str, contract: str, walle
         if issue:
             console.print(f'  Issue: {issue.repository_full_name}#{issue.issue_number}')
             console.print(f'  Status: {issue.status.name}')
-            console.print(f'  Bounty: {issue.bounty_amount / 1e9:.4f} ALPHA\n')
+            console.print(f'  Bounty: {format_alpha(issue.bounty_amount, decimals=4)} ALPHA\n')
 
         result = client.cancel_issue(issue_id, wallet)
         if result:
@@ -214,11 +215,11 @@ def admin_payout(issue_id: int, network: str, rpc_url: str, contract: str, walle
         if issue:
             console.print(f'  Issue: {issue.repository_full_name}#{issue.issue_number}')
             console.print(f'  Status: {issue.status.name}')
-            console.print(f'  Bounty: {issue.bounty_amount / 1e9:.4f} ALPHA\n')
+            console.print(f'  Bounty: {format_alpha(issue.bounty_amount, decimals=4)} ALPHA\n')
 
         result = client.payout_bounty(issue_id, wallet)
         if result:
-            console.print(f'[green]Payout successful! Amount: {result / 1e9:.4f} ALPHA[/green]')
+            console.print(f'[green]Payout successful! Amount: {format_alpha(result, decimals=4)} ALPHA[/green]')
         else:
             console.print('[red]Payout failed.[/red]')
     except ImportError as e:

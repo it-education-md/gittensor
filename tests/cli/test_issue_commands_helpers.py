@@ -14,9 +14,33 @@ from gittensor.cli.issue_commands.helpers import (
     MIN_BOUNTY_RAW,
     ensure_github_issue_for_registration,
     ensure_github_repository_exists,
+    format_alpha,
     normalize_ss58_address,
     validate_bounty_amount,
 )
+
+# ============================================================================
+# ALPHA Formatting Tests
+# ============================================================================
+
+
+def test_format_alpha_defaults_to_two_decimals():
+    assert format_alpha(10_123_456_789) == '10.12'
+
+
+def test_format_alpha_supports_four_decimals_for_detail_view():
+    assert format_alpha(10_123_456_789, decimals=4) == '10.1235'
+
+
+def test_format_alpha_rejects_negative_raw_amount():
+    with pytest.raises(ValueError, match='raw_amount must be >= 0'):
+        format_alpha(-1_500_000_000, decimals=2)
+
+
+def test_format_alpha_rejects_negative_precision():
+    with pytest.raises(ValueError, match='decimals must be >= 0'):
+        format_alpha(1_000_000_000, decimals=-1)
+
 
 # ============================================================================
 # SS58 Address Normalization Tests

@@ -19,10 +19,18 @@ from .helpers import (
     _read_contract_packed_storage,
     _read_issues_from_child_storage,
     console,
+    format_alpha,
     get_contract_address,
     read_issues_from_contract,
     resolve_network,
 )
+
+
+def _to_int_or_zero(value) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
 
 
 @click.command('list')
@@ -82,14 +90,18 @@ def issues_list(issue_id: int, network: str, rpc_url: str, contract: str, verbos
         issue = next((i for i in issues if i['id'] == issue_id), None)
 
         if issue:
+            bounty_raw = _to_int_or_zero(issue.get('bounty_amount', 0))
+            target_raw = _to_int_or_zero(issue.get('target_bounty', 0))
+            fill_pct = (bounty_raw / target_raw * 100) if target_raw > 0 else 0
+
             console.print(
                 Panel(
                     f'[cyan]ID:[/cyan] {issue["id"]}\n'
                     f'[cyan]Repository:[/cyan] {issue["repository_full_name"]}\n'
                     f'[cyan]Issue Number:[/cyan] #{issue["issue_number"]}\n'
-                    f'[cyan]Bounty Amount:[/cyan] {issue["bounty_amount"] / 1e9:.4f} ALPHA\n'
-                    f'[cyan]Target Bounty:[/cyan] {issue["target_bounty"] / 1e9:.4f} ALPHA\n'
-                    f'[cyan]Fill %:[/cyan] {(issue["bounty_amount"] / issue["target_bounty"] * 100) if issue["target_bounty"] > 0 else 0:.1f}%\n'
+                    f'[cyan]Bounty Amount:[/cyan] {format_alpha(bounty_raw, decimals=4)} ALPHA\n'
+                    f'[cyan]Target Bounty:[/cyan] {format_alpha(target_raw, decimals=4)} ALPHA\n'
+                    f'[cyan]Fill %:[/cyan] {fill_pct:.1f}%\n'
                     f'[cyan]Status:[/cyan] {issue["status"]}',
                     title=f'Issue #{issue_id}',
                     border_style='green',
@@ -114,28 +126,24 @@ def issues_list(issue_id: int, network: str, rpc_url: str, contract: str, verbos
             issue_id = issue.get('id', '?')
             repo = issue.get('repository_full_name', '?')
             num = issue.get('issue_number', '?')
-            bounty_raw = issue.get('bounty_amount', 0)
-            target_raw = issue.get('target_bounty', 0)
+            bounty_raw = _to_int_or_zero(issue.get('bounty_amount', 0))
+            target_raw = _to_int_or_zero(issue.get('target_bounty', 0))
             status = issue.get('status', 'unknown')
 
-            try:
-                bounty = float(bounty_raw) / 1_000_000_000 if bounty_raw else 0.0
-                target = float(target_raw) / 1_000_000_000 if target_raw else 0.0
-            except (ValueError, TypeError):
-                bounty = 0.0
-                target = 0.0
-
             # Format bounty pool display with fill percentage
-            if target > 0:
-                fill_pct = (bounty / target) * 100
+            if target_raw > 0:
+                fill_pct = (bounty_raw / target_raw) * 100
                 if fill_pct >= 100:
-                    bounty_display = f'{bounty:.1f} (100%)'
-                elif bounty > 0:
-                    bounty_display = f'{bounty:.1f}/{target:.1f} ({fill_pct:.0f}%)'
+                    bounty_display = f'{format_alpha(bounty_raw, decimals=2)} (100%)'
+                elif bounty_raw > 0:
+                    bounty_display = (
+                        f'{format_alpha(bounty_raw, decimals=2)}/{format_alpha(target_raw, decimals=2)}'
+                        f' ({fill_pct:.0f}%)'
+                    )
                 else:
-                    bounty_display = f'0/{target:.1f} (0%)'
+                    bounty_display = f'0.00/{format_alpha(target_raw, decimals=2)} (0%)'
             else:
-                bounty_display = f'{bounty:.2f}' if bounty > 0 else '0.00'
+                bounty_display = format_alpha(bounty_raw, decimals=2)
 
             # Format status
             if isinstance(status, dict):
@@ -199,7 +207,7 @@ def issues_bounty_pool(network: str, rpc_url: str, contract: str, verbose: bool)
 
         total_bounty_pool = sum(issue.get('bounty_amount', 0) for issue in issues)
         console.print(
-            f'[green]Issue Bounty Pool:[/green] {total_bounty_pool / 1e9:.4f} ALPHA ({total_bounty_pool} raw)'
+            f'[green]Issue Bounty Pool:[/green] {format_alpha(total_bounty_pool, decimals=4)} ALPHA ({total_bounty_pool} raw)'
         )
         console.print(f'[dim]Sum of bounty amounts from {len(issues)} issue(s)[/dim]')
     except Exception as e:
@@ -261,9 +269,9 @@ def issues_pending_harvest(network: str, rpc_url: str, contract: str, verbose: b
         # Pending harvest = treasury stake - allocated bounties
         pending_harvest = max(0, treasury_stake - total_bounty_pool)
 
-        console.print(f'[green]Treasury Stake:[/green] {treasury_stake / 1e9:.4f} ALPHA')
-        console.print(f'[green]Allocated to Bounties:[/green] {total_bounty_pool / 1e9:.4f} ALPHA')
-        console.print(f'[green]Pending Harvest:[/green] {pending_harvest / 1e9:.4f} ALPHA')
+        console.print(f'[green]Treasury Stake:[/green] {format_alpha(treasury_stake, decimals=4)} ALPHA')
+        console.print(f'[green]Allocated to Bounties:[/green] {format_alpha(total_bounty_pool, decimals=4)} ALPHA')
+        console.print(f'[green]Pending Harvest:[/green] {format_alpha(pending_harvest, decimals=4)} ALPHA')
     except ImportError as e:
         console.print(f'[red]Error: Missing dependency - {e}[/red]')
     except Exception as e:

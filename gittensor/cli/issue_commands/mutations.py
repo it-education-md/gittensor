@@ -18,6 +18,7 @@ from .helpers import (
     console,
     ensure_github_issue_for_registration,
     ensure_github_repository_exists,
+    format_alpha,
     get_contract_address,
     load_config,
     resolve_network,
@@ -365,8 +366,8 @@ def issue_harvest(wallet_name: str, wallet_hotkey: str, network: str, rpc_url: s
                 last_harvest = client.get_last_harvest_block()
                 current_block = subtensor.get_current_block()
 
-                console.print(f'[dim]Alpha pool: {alpha_pool / 1e9:.4f} ALPHA[/dim]')
-                console.print(f'[dim]Treasury stake: {pending / 1e9:.4f} ALPHA[/dim]')
+                console.print(f'[dim]Alpha pool: {format_alpha(alpha_pool, decimals=4)} ALPHA[/dim]')
+                console.print(f'[dim]Treasury stake: {format_alpha(pending, decimals=4)} ALPHA[/dim]')
                 console.print(f'[dim]Last harvest block: {last_harvest}[/dim]')
                 console.print(f'[dim]Current block: {current_block}[/dim]')
                 if last_harvest > 0:

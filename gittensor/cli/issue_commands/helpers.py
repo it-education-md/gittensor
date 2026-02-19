@@ -40,6 +40,18 @@ ISSUE_INPUT_MAX = 999999
 console = Console()
 
 
+def format_alpha(raw_amount: int, decimals: int = 2) -> str:
+    """Format raw token amount as human-readable ALPHA string."""
+    if raw_amount < 0:
+        raise ValueError('raw_amount must be >= 0')
+
+    if decimals < 0:
+        raise ValueError('decimals must be >= 0')
+
+    alpha_amount = Decimal(raw_amount) / Decimal(ALPHA_RAW_UNIT)
+    return f'{alpha_amount:.{decimals}f}'
+
+
 def normalize_ss58_address(address: str) -> str:
     """Validate and normalize an SS58 address."""
     normalized = address.strip()

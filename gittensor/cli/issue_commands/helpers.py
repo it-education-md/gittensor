@@ -8,10 +8,13 @@ Shared helper functions for issue commands
 import hashlib
 import json
 import os
+import re
 import struct
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 import click
 from rich.console import Console
@@ -22,12 +25,50 @@ from gittensor.constants import CONTRACT_ADDRESS
 GITTENSOR_DIR = Path.home() / '.gittensor'
 CONFIG_FILE = GITTENSOR_DIR / 'config.json'
 
+# Token units and minimum bounty
 ALPHA_DECIMALS = 9
 ALPHA_RAW_UNIT = 10**ALPHA_DECIMALS
 MIN_BOUNTY_ALPHA = Decimal('10')
 MIN_BOUNTY_RAW = int(MIN_BOUNTY_ALPHA * ALPHA_RAW_UNIT)
 
+# GitHub API
+GITHUB_API_BASE_URL = 'https://api.github.com'
+
 console = Console()
+
+
+def _github_api_get(
+    path: str,
+    timeout_seconds: int = 10,
+) -> tuple[Optional[int], Optional[str]]:
+    """
+    Execute a GitHub API GET request.
+
+    Args:
+        path: API path beginning with '/' (e.g., '/repos/owner/repo').
+        timeout_seconds: HTTP timeout for the request.
+
+    Returns:
+        Tuple of (status_code, network_error).
+        - status_code: HTTP status code when available.
+        - network_error: network failure reason when request could not reach GitHub.
+    """
+    request = Request(
+        f'{GITHUB_API_BASE_URL}{path}',
+        headers={
+            'Accept': 'application/vnd.github+json',
+            'User-Agent': 'gittensor-cli',
+        },
+    )
+
+    try:
+        with urlopen(request, timeout=timeout_seconds) as response:
+            return getattr(response, 'status', 200), None
+    except HTTPError as exc:
+        return exc.code, None
+    except URLError as exc:
+        reason = getattr(exc, 'reason', exc)
+        return None, str(reason)
 
 
 def load_config() -> Dict[str, Any]:
@@ -148,6 +189,73 @@ def get_ws_endpoint(cli_value: str = '') -> str:
         return config['ws_endpoint']
 
     return cli_value  # Return CLI default
+
+
+def _validate_repository_full_name(repo_input: str) -> str:
+    """
+    Validate repository full name in strict owner/repo format.
+
+    Args:
+        repo_input: Repository full name from the CLI (owner/repo).
+
+    Returns:
+        str: Validated repository full name.
+    """
+    repo_format_hint = 'Expected format: owner/repo (e.g., entrius/gittensor).'
+    owner_name_pattern = re.compile(r'^[A-Za-z0-9-]+$')
+    repository_name_pattern = re.compile(r'^[A-Za-z0-9._-]+$')
+
+    def _raise_repo_validation_error(value: str) -> None:
+        raise click.BadParameter(
+            f"Invalid repository '{value}'. {repo_format_hint}",
+            param_hint='--repo',
+        )
+
+    if not repo_input:
+        raise click.BadParameter(
+            f'Repository is required. {repo_format_hint}',
+            param_hint='--repo',
+        )
+
+    if repo_input != repo_input.strip() or any(char.isspace() for char in repo_input):
+        _raise_repo_validation_error(repo_input)
+
+    if repo_input.count('/') != 1:
+        _raise_repo_validation_error(repo_input)
+
+    owner, repo = repo_input.split('/', 1)
+    if not owner or not repo:
+        _raise_repo_validation_error(repo_input)
+
+    if not owner_name_pattern.fullmatch(owner):
+        _raise_repo_validation_error(repo_input)
+
+    if not repository_name_pattern.fullmatch(repo):
+        _raise_repo_validation_error(repo_input)
+
+    return repo_input
+
+
+def ensure_github_repository_exists(repo_full_name: str):
+    repo_full_name = _validate_repository_full_name(repo_full_name)
+    owner, repo = repo_full_name.split('/', 1)
+    status, network_error = _github_api_get(f'/repos/{owner}/{repo}')
+
+    if status == 200:
+        return
+
+    if status == 404:
+        raise click.BadParameter(
+            f"Repository '{repo_full_name}' not found on GitHub",
+            param_hint='--repo',
+        )
+
+    if network_error is not None:
+        raise click.ClickException(
+            'GitHub is currently unreachable. Please check your internet connection and try again.'
+        )
+
+    raise click.ClickException('Could not verify repository on GitHub. Please try again later.')
 
 
 def validate_bounty_amount(bounty_input: str) -> tuple[int, Decimal]:

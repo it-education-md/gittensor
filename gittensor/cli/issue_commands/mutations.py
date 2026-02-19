@@ -16,6 +16,7 @@ from rich.panel import Panel
 
 from .helpers import (
     console,
+    ensure_github_repository_exists,
     get_contract_address,
     load_config,
     resolve_network,
@@ -103,9 +104,10 @@ def issue_register(
     """
     console.print('\n[bold cyan]Register Issue for Bounty[/bold cyan]\n')
 
-    # Validate repo format
-    if '/' not in repo:
-        console.print('[red]Error: Repository must be in owner/repo format[/red]')
+    try:
+        ensure_github_repository_exists(repo)
+    except (click.BadParameter, click.ClickException) as e:
+        console.print(f'[red]Error: {e}[/red]')
         return
 
     try:

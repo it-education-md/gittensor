@@ -9,8 +9,60 @@ import pytest
 from gittensor.cli.issue_commands.helpers import (
     ALPHA_RAW_UNIT,
     MIN_BOUNTY_RAW,
+    ensure_github_repository_exists,
     validate_bounty_amount,
 )
+
+# ============================================================================
+# Repository Validation Tests
+# ============================================================================
+
+
+@pytest.mark.parametrize(
+    'value',
+    ['entrius/gittensor', 'entrius/my_repo', 'entrius/my.repo', 'entrius/my-repo'],
+)
+def test_ensure_github_repository_exists_accepts_valid_repo_names(value, mock_github_repo_exists):
+    ensure_github_repository_exists(value)
+
+
+@pytest.mark.parametrize(
+    'value',
+    [
+        '',
+        '   ',
+        '//btcli',
+        'a/b/c/d',
+        ' /repo',
+        'opentensor/',
+        '/btcli',
+        'open tensor/btcli',
+        'opentensor/bt cli',
+        'open_tensor/btcli',
+        'open.tensor/btcli',
+        'open*tensor/btcli',
+        'opentensor/btcli?',
+    ],
+)
+def test_ensure_github_repository_exists_rejects_invalid_repo_names(value, fail_if_github_called):
+    with pytest.raises(click.BadParameter):
+        ensure_github_repository_exists(value)
+
+
+def test_ensure_github_repository_exists_rejects_404(mock_github_repo_404):
+    with pytest.raises(click.BadParameter, match="Repository 'entrius/missing-repo' not found on GitHub"):
+        ensure_github_repository_exists('entrius/missing-repo')
+
+
+def test_ensure_github_repository_exists_handles_unreachable_github(mock_github_unreachable):
+    with pytest.raises(click.ClickException, match='GitHub is currently unreachable'):
+        ensure_github_repository_exists('entrius/gittensor')
+
+
+def test_ensure_github_repository_exists_handles_non_404_http_errors(mock_github_http_500):
+    with pytest.raises(click.ClickException, match='Could not verify repository on GitHub'):
+        ensure_github_repository_exists('entrius/gittensor')
+
 
 # ============================================================================
 # Validate Bounty Amount Tests

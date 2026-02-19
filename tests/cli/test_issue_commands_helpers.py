@@ -6,6 +6,7 @@
 import click
 import pytest
 
+import gittensor.cli.issue_commands.helpers as helpers_module
 from gittensor.cli.issue_commands.helpers import (
     ALPHA_RAW_UNIT,
     ISSUE_INPUT_MAX,
@@ -13,8 +14,36 @@ from gittensor.cli.issue_commands.helpers import (
     MIN_BOUNTY_RAW,
     ensure_github_issue_for_registration,
     ensure_github_repository_exists,
+    normalize_ss58_address,
     validate_bounty_amount,
 )
+
+# ============================================================================
+# SS58 Address Normalization Tests
+# ============================================================================
+
+
+def test_normalize_ss58_address_trims_whitespace(monkeypatch):
+    expected = '5F3sa2TJcP28M4JvZrdxU6VPG1f7MkbM2kKxQ9Qf4xHh9vA9'
+
+    def _fake_ss58_decode(value):
+        assert value == expected
+
+    monkeypatch.setattr(helpers_module, 'ss58_decode', _fake_ss58_decode)
+
+    normalized = normalize_ss58_address(f'  {expected}  ')
+    assert normalized == expected
+
+
+def test_normalize_ss58_address_raises_bad_parameter(monkeypatch):
+    def _raise_decode_error(_value):
+        raise ValueError('invalid')
+
+    monkeypatch.setattr(helpers_module, 'ss58_decode', _raise_decode_error)
+
+    with pytest.raises(click.BadParameter, match='Invalid SS58 address: bad-address'):
+        normalize_ss58_address('bad-address')
+
 
 # ============================================================================
 # Repository Validation Tests

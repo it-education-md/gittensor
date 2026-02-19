@@ -18,6 +18,7 @@ import click
 from .helpers import (
     console,
     get_contract_address,
+    normalize_ss58_address,
     resolve_network,
     validate_issue_input_range,
 )
@@ -269,6 +270,12 @@ def admin_set_owner(new_owner: str, network: str, rpc_url: str, contract: str, w
     contract_addr = get_contract_address(contract)
     ws_endpoint, network_name = resolve_network(network, rpc_url)
 
+    try:
+        new_owner = normalize_ss58_address(new_owner)
+    except click.BadParameter as e:
+        console.print(f'[red]Error: {e}[/red]')
+        return
+
     if not contract_addr:
         console.print('[red]Error: Contract address not configured.[/red]')
         return
@@ -350,6 +357,12 @@ def admin_set_treasury(
     """
     contract_addr = get_contract_address(contract)
     ws_endpoint, network_name = resolve_network(network, rpc_url)
+
+    try:
+        new_treasury = normalize_ss58_address(new_treasury)
+    except click.BadParameter as e:
+        console.print(f'[red]Error: {e}[/red]')
+        return
 
     if not contract_addr:
         console.print('[red]Error: Contract address not configured.[/red]')
@@ -434,6 +447,12 @@ def admin_add_validator(hotkey: str, network: str, rpc_url: str, contract: str, 
     contract_addr = get_contract_address(contract)
     ws_endpoint, network_name = resolve_network(network, rpc_url)
 
+    try:
+        hotkey = normalize_ss58_address(hotkey)
+    except click.BadParameter as e:
+        console.print(f'[red]Error: {e}[/red]')
+        return
+
     if not contract_addr:
         console.print('[red]Error: Contract address not configured.[/red]')
         return
@@ -516,6 +535,12 @@ def admin_remove_validator(
     """
     contract_addr = get_contract_address(contract)
     ws_endpoint, network_name = resolve_network(network, rpc_url)
+
+    try:
+        hotkey = normalize_ss58_address(hotkey)
+    except click.BadParameter as e:
+        console.print(f'[red]Error: {e}[/red]')
+        return
 
     if not contract_addr:
         console.print('[red]Error: Contract address not configured.[/red]')

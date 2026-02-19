@@ -17,6 +17,7 @@ from urllib.request import urlopen
 
 import click
 from rich.console import Console
+from substrateinterface.utils.ss58 import ss58_decode
 
 from gittensor.constants import CONTRACT_ADDRESS
 
@@ -37,6 +38,19 @@ ISSUE_INPUT_MIN = 1
 ISSUE_INPUT_MAX = 999999
 
 console = Console()
+
+
+def normalize_ss58_address(address: str) -> str:
+    """Validate and normalize an SS58 address."""
+    normalized = address.strip()
+    try:
+        ss58_decode(normalized)
+    except Exception:
+        raise click.BadParameter(
+            f'Invalid SS58 address: {address}',
+            param_hint='--address',
+        )
+    return normalized
 
 
 def load_config() -> dict[str, Any]:

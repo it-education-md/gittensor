@@ -18,6 +18,7 @@ from rich.table import Table
 from .helpers import (
     console,
     get_contract_address,
+    normalize_ss58_address,
     resolve_network,
     validate_issue_input_range,
 )
@@ -131,6 +132,8 @@ def val_vote_solution(
 
     try:
         validate_issue_input_range(issue_id)
+        solver_hotkey = normalize_ss58_address(solver_hotkey)
+        solver_coldkey = normalize_ss58_address(solver_coldkey)
     except click.BadParameter as e:
         console.print(f'[red]Error: {e}[/red]')
         return

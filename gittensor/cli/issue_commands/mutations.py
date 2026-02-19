@@ -19,6 +19,7 @@ from .helpers import (
     get_contract_address,
     load_config,
     resolve_network,
+    validate_bounty_amount,
 )
 
 
@@ -38,7 +39,7 @@ from .helpers import (
 @click.option(
     '--bounty',
     required=True,
-    type=float,
+    type=str,
     help='Bounty amount in ALPHA tokens',
 )
 @click.option(
@@ -75,7 +76,7 @@ from .helpers import (
 def issue_register(
     repo: str,
     issue_number: int,
-    bounty: float,
+    bounty: str,
     network: str,
     rpc_url: str,
     contract: str,
@@ -107,6 +108,12 @@ def issue_register(
         console.print('[red]Error: Repository must be in owner/repo format[/red]')
         return
 
+    try:
+        bounty_amount, bounty_alpha = validate_bounty_amount(bounty)
+    except click.BadParameter as e:
+        console.print(f'[red]Error: {e}[/red]')
+        return
+
     # Construct GitHub URL
     github_url = f'https://github.com/{repo}/issues/{issue_number}'
 
@@ -120,7 +127,7 @@ def issue_register(
             f'[cyan]Repository:[/cyan] {repo}\n'
             f'[cyan]Issue Number:[/cyan] #{issue_number}\n'
             f'[cyan]GitHub URL:[/cyan] {github_url}\n'
-            f'[cyan]Target Bounty:[/cyan] {bounty:.2f} ALPHA\n'
+            f'[cyan]Target Bounty:[/cyan] {bounty_alpha:.2f} ALPHA\n'
             f'[cyan]Network:[/cyan] {network_name}\n'
             f'[cyan]RPC Endpoint:[/cyan] {ws_endpoint}\n'
             f'[cyan]Contract:[/cyan] {contract_addr if contract_addr else "(not configured)"}',
@@ -185,9 +192,6 @@ def issue_register(
             metadata_file=str(contract_metadata),
             substrate=substrate,
         )
-
-        # Convert bounty to contract units (9 decimals for ALPHA)
-        bounty_amount = int(bounty * 1_000_000_000)
 
         console.print('[yellow]Calling register_issue on contract...[/yellow]')
 

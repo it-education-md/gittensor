@@ -9,9 +9,11 @@ import hashlib
 import json
 import os
 import struct
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import click
 from rich.console import Console
 
 from gittensor.constants import CONTRACT_ADDRESS
@@ -19,6 +21,11 @@ from gittensor.constants import CONTRACT_ADDRESS
 # Default paths
 GITTENSOR_DIR = Path.home() / '.gittensor'
 CONFIG_FILE = GITTENSOR_DIR / 'config.json'
+
+ALPHA_DECIMALS = 9
+ALPHA_RAW_UNIT = 10**ALPHA_DECIMALS
+MIN_BOUNTY_ALPHA = Decimal('10')
+MIN_BOUNTY_RAW = int(MIN_BOUNTY_ALPHA * ALPHA_RAW_UNIT)
 
 console = Console()
 
@@ -141,6 +148,60 @@ def get_ws_endpoint(cli_value: str = '') -> str:
         return config['ws_endpoint']
 
     return cli_value  # Return CLI default
+
+
+def validate_bounty_amount(bounty_input: str) -> tuple[int, Decimal]:
+    """
+    Validate bounty input and convert to raw ALPHA units.
+
+    Args:
+        bounty_input: User-provided bounty value from CLI.
+
+    Returns:
+        tuple[int, Decimal]: Raw-unit amount and validated ALPHA amount.
+    """
+    value = bounty_input.strip()
+    if not value:
+        raise click.BadParameter('Bounty is required', param_hint='--bounty')
+
+    try:
+        bounty = Decimal(value)
+    except InvalidOperation:
+        raise click.BadParameter(
+            (
+                f"Invalid bounty amount '{bounty_input}'. "
+                'Expected a numeric value (e.g., 10 or 10.5).'
+            ),
+            param_hint='--bounty',
+        )
+
+    if not bounty.is_finite():
+        raise click.BadParameter(
+            'Bounty must be a finite number',
+            param_hint='--bounty',
+        )
+
+    decimals = max(0, -bounty.as_tuple().exponent)
+    if decimals > ALPHA_DECIMALS:
+        raise click.BadParameter(
+            f'Precision would be lost: bounty supports up to {ALPHA_DECIMALS} decimal places (got {decimals})',
+            param_hint='--bounty',
+        )
+
+    if bounty < MIN_BOUNTY_ALPHA:
+        raise click.BadParameter(
+            f'Minimum bounty is {MIN_BOUNTY_ALPHA} ALPHA',
+            param_hint='--bounty',
+        )
+
+    raw_amount = int(bounty * ALPHA_RAW_UNIT)
+    if raw_amount < MIN_BOUNTY_RAW:
+        raise click.BadParameter(
+            f'Minimum bounty is {MIN_BOUNTY_ALPHA} ALPHA',
+            param_hint='--bounty',
+        )
+
+    return raw_amount, bounty
 
 
 # ============================================================================

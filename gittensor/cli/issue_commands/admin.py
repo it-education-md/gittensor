@@ -19,6 +19,7 @@ from .helpers import (
     console,
     get_contract_address,
     resolve_network,
+    validate_issue_input_range,
 )
 
 
@@ -86,6 +87,12 @@ def admin_cancel(issue_id: int, network: str, rpc_url: str, contract: str, walle
     """
     contract_addr = get_contract_address(contract)
     ws_endpoint, network_name = resolve_network(network, rpc_url)
+
+    try:
+        validate_issue_input_range(issue_id)
+    except click.BadParameter as e:
+        console.print(f'[red]Error: {e}[/red]')
+        return
 
     if not contract_addr:
         console.print('[red]Error: Contract address not configured.[/red]')
@@ -172,6 +179,12 @@ def admin_payout(issue_id: int, network: str, rpc_url: str, contract: str, walle
     """
     contract_addr = get_contract_address(contract)
     ws_endpoint, network_name = resolve_network(network, rpc_url)
+
+    try:
+        validate_issue_input_range(issue_id)
+    except click.BadParameter as e:
+        console.print(f'[red]Error: {e}[/red]')
+        return
 
     if not contract_addr:
         console.print('[red]Error: Contract address not configured.[/red]')

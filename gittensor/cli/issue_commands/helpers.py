@@ -12,14 +12,15 @@ import re
 import struct
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
-from typing import Any, Dict, List, Optional
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from typing import Any, List, Optional
+from urllib.request import urlopen
 
 import click
 from rich.console import Console
 
 from gittensor.constants import CONTRACT_ADDRESS
+
+from .github_api import github_api_get_json, github_api_get_status
 
 # Default paths
 GITTENSOR_DIR = Path.home() / '.gittensor'
@@ -31,47 +32,14 @@ ALPHA_RAW_UNIT = 10**ALPHA_DECIMALS
 MIN_BOUNTY_ALPHA = Decimal('10')
 MIN_BOUNTY_RAW = int(MIN_BOUNTY_ALPHA * ALPHA_RAW_UNIT)
 
-# GitHub API
-GITHUB_API_BASE_URL = 'https://api.github.com'
+# Issue input bounds: 1 <= value < 1_000_000
+ISSUE_INPUT_MIN = 1
+ISSUE_INPUT_MAX = 999999
 
 console = Console()
 
 
-def _github_api_get(
-    path: str,
-    timeout_seconds: int = 10,
-) -> tuple[Optional[int], Optional[str]]:
-    """
-    Execute a GitHub API GET request.
-
-    Args:
-        path: API path beginning with '/' (e.g., '/repos/owner/repo').
-        timeout_seconds: HTTP timeout for the request.
-
-    Returns:
-        Tuple of (status_code, network_error).
-        - status_code: HTTP status code when available.
-        - network_error: network failure reason when request could not reach GitHub.
-    """
-    request = Request(
-        f'{GITHUB_API_BASE_URL}{path}',
-        headers={
-            'Accept': 'application/vnd.github+json',
-            'User-Agent': 'gittensor-cli',
-        },
-    )
-
-    try:
-        with urlopen(request, timeout=timeout_seconds) as response:
-            return getattr(response, 'status', 200), None
-    except HTTPError as exc:
-        return exc.code, None
-    except URLError as exc:
-        reason = getattr(exc, 'reason', exc)
-        return None, str(reason)
-
-
-def load_config() -> Dict[str, Any]:
+def load_config() -> dict[str, Any]:
     """
     Load configuration from ~/.gittensor/config.json.
 
@@ -201,19 +169,19 @@ def _validate_repository_full_name(repo_input: str) -> str:
     Returns:
         str: Validated repository full name.
     """
-    repo_format_hint = 'Expected format: owner/repo (e.g., entrius/gittensor).'
+    repo_format_hint = 'expected format: owner/repo (e.g., entrius/gittensor)'
     owner_name_pattern = re.compile(r'^[A-Za-z0-9-]+$')
     repository_name_pattern = re.compile(r'^[A-Za-z0-9._-]+$')
 
     def _raise_repo_validation_error(value: str) -> None:
         raise click.BadParameter(
-            f"Invalid repository '{value}'. {repo_format_hint}",
+            f"Invalid repository '{value}'; {repo_format_hint}",
             param_hint='--repo',
         )
 
     if not repo_input:
         raise click.BadParameter(
-            f'Repository is required. {repo_format_hint}',
+            f'Repository is required; {repo_format_hint}',
             param_hint='--repo',
         )
 
@@ -239,7 +207,7 @@ def _validate_repository_full_name(repo_input: str) -> str:
 def ensure_github_repository_exists(repo_full_name: str):
     repo_full_name = _validate_repository_full_name(repo_full_name)
     owner, repo = repo_full_name.split('/', 1)
-    status, network_error = _github_api_get(f'/repos/{owner}/{repo}')
+    status, network_error = github_api_get_status(f'/repos/{owner}/{repo}', opener=urlopen)
 
     if status == 200:
         return
@@ -252,10 +220,59 @@ def ensure_github_repository_exists(repo_full_name: str):
 
     if network_error is not None:
         raise click.ClickException(
-            'GitHub is currently unreachable. Please check your internet connection and try again.'
+            'GitHub is currently unreachable; please check your internet connection and try again'
         )
 
-    raise click.ClickException('Could not verify repository on GitHub. Please try again later.')
+    raise click.ClickException('Could not verify repository on GitHub; please try again later')
+
+
+def validate_issue_input_range(issue_value: int, value_name: str = 'Issue ID') -> int:
+    if ISSUE_INPUT_MIN <= issue_value <= ISSUE_INPUT_MAX:
+        return issue_value
+
+    raise click.BadParameter(f'{value_name} must be between {ISSUE_INPUT_MIN} and {ISSUE_INPUT_MAX}')
+
+
+def ensure_github_issue_for_registration(repo_full_name: str, issue_number: int) -> bool:
+    """
+    Validate GitHub issue eligibility for registration.
+
+    Returns:
+        True if issue is open, False if issue is closed.
+    """
+    repo_full_name = _validate_repository_full_name(repo_full_name)
+    validate_issue_input_range(issue_number, value_name='Issue number')
+
+    owner, repo = repo_full_name.split('/', 1)
+    status, payload, network_error = github_api_get_json(
+        f'/repos/{owner}/{repo}/issues/{issue_number}',
+        opener=urlopen,
+    )
+
+    if network_error is not None:
+        raise click.ClickException(
+            'GitHub is currently unreachable; please check your internet connection and try again'
+        )
+
+    if status == 404:
+        raise click.BadParameter(
+            f"Issue #{issue_number} not found on GitHub in repository '{repo_full_name}'",
+            param_hint='--issue',
+        )
+
+    if status == 200:
+        if not isinstance(payload, dict):
+            raise click.ClickException('Could not verify issue on GitHub; please try again later')
+
+        if 'pull_request' in payload:
+            raise click.BadParameter(
+                f'#{issue_number} is a pull request, not an issue',
+                param_hint='--issue',
+            )
+
+        return str(payload.get('state', '')).lower() != 'closed'
+
+    raise click.ClickException('Could not verify issue on GitHub; please try again later')
 
 
 def validate_bounty_amount(bounty_input: str) -> tuple[int, Decimal]:
@@ -276,10 +293,7 @@ def validate_bounty_amount(bounty_input: str) -> tuple[int, Decimal]:
         bounty = Decimal(value)
     except InvalidOperation:
         raise click.BadParameter(
-            (
-                f"Invalid bounty amount '{bounty_input}'. "
-                'Expected a numeric value (e.g., 10 or 10.5).'
-            ),
+            f"Invalid bounty amount '{bounty_input}'; expected a numeric value (e.g., 10 or 10.5)",
             param_hint='--bounty',
         )
 
@@ -346,7 +360,7 @@ def _get_contract_child_storage_key(substrate, contract_addr: str, verbose: bool
         return None
 
 
-def _read_contract_packed_storage(substrate, contract_addr: str, verbose: bool = False) -> Optional[Dict[str, Any]]:
+def _read_contract_packed_storage(substrate, contract_addr: str, verbose: bool = False) -> Optional[dict[str, Any]]:
     """
     Read the packed root storage from a contract using childstate RPC
 
@@ -449,7 +463,7 @@ def _compute_ink5_lazy_key(root_key_hex: str, encoded_key: bytes) -> str:
     return '0x' + (h + data).hex()
 
 
-def _read_issues_from_child_storage(substrate, contract_addr: str, verbose: bool = False) -> List[Dict[str, Any]]:
+def _read_issues_from_child_storage(substrate, contract_addr: str, verbose: bool = False) -> List[dict[str, Any]]:
     """
     Read all issues from contract child storage.
 
@@ -582,7 +596,7 @@ def _read_issues_from_child_storage(substrate, contract_addr: str, verbose: bool
     return issues
 
 
-def read_issues_from_contract(ws_endpoint: str, contract_addr: str, verbose: bool = False) -> List[Dict[str, Any]]:
+def read_issues_from_contract(ws_endpoint: str, contract_addr: str, verbose: bool = False) -> List[dict[str, Any]]:
     """
     Read issues directly from the smart contract (no API dependency).
 

@@ -8,7 +8,10 @@ import pytest
 
 from gittensor.cli.issue_commands.helpers import (
     ALPHA_RAW_UNIT,
+    ISSUE_INPUT_MAX,
+    ISSUE_INPUT_MIN,
     MIN_BOUNTY_RAW,
+    ensure_github_issue_for_registration,
     ensure_github_repository_exists,
     validate_bounty_amount,
 )
@@ -62,6 +65,50 @@ def test_ensure_github_repository_exists_handles_unreachable_github(mock_github_
 def test_ensure_github_repository_exists_handles_non_404_http_errors(mock_github_http_500):
     with pytest.raises(click.ClickException, match='Could not verify repository on GitHub'):
         ensure_github_repository_exists('entrius/gittensor')
+
+
+# ============================================================================
+# Issue Validation Tests
+# ============================================================================
+
+
+@pytest.mark.parametrize('value', [0, -1, 1_000_000])
+def test_ensure_github_issue_for_registration_rejects_out_of_range_without_network(value, fail_if_github_called):
+    with pytest.raises(click.BadParameter, match=f'between {ISSUE_INPUT_MIN} and {ISSUE_INPUT_MAX}'):
+        ensure_github_issue_for_registration('entrius/gittensor', value)
+
+
+def test_ensure_github_issue_for_registration_accepts_open_issue(mock_github_issue_open):
+    assert ensure_github_issue_for_registration('entrius/gittensor', 210) is True
+
+
+@pytest.mark.parametrize('value', [ISSUE_INPUT_MIN, ISSUE_INPUT_MAX])
+def test_ensure_github_issue_for_registration_accepts_range_boundaries(value, mock_github_issue_open):
+    assert ensure_github_issue_for_registration('entrius/gittensor', value) is True
+
+
+def test_ensure_github_issue_for_registration_warns_path_for_closed_issue(mock_github_issue_closed):
+    assert ensure_github_issue_for_registration('entrius/gittensor', 210) is False
+
+
+def test_ensure_github_issue_for_registration_rejects_pull_request(mock_github_issue_pr):
+    with pytest.raises(click.BadParameter, match='#210 is a pull request, not an issue'):
+        ensure_github_issue_for_registration('entrius/gittensor', 210)
+
+
+def test_ensure_github_issue_for_registration_rejects_404(mock_github_issue_404):
+    with pytest.raises(click.BadParameter, match='Issue #210 not found on GitHub'):
+        ensure_github_issue_for_registration('entrius/gittensor', 210)
+
+
+def test_ensure_github_issue_for_registration_handles_unreachable_github(mock_github_unreachable):
+    with pytest.raises(click.ClickException, match='GitHub is currently unreachable'):
+        ensure_github_issue_for_registration('entrius/gittensor', 210)
+
+
+def test_ensure_github_issue_for_registration_handles_non_404_http_errors(mock_github_http_500):
+    with pytest.raises(click.ClickException, match='Could not verify issue on GitHub'):
+        ensure_github_issue_for_registration('entrius/gittensor', 210)
 
 
 # ============================================================================

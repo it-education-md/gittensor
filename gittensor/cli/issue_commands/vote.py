@@ -19,6 +19,7 @@ from .helpers import (
     console,
     get_contract_address,
     resolve_network,
+    validate_issue_input_range,
 )
 
 
@@ -128,6 +129,12 @@ def val_vote_solution(
     contract_addr = get_contract_address(contract)
     ws_endpoint, network_name = resolve_network(network, rpc_url)
 
+    try:
+        validate_issue_input_range(issue_id)
+    except click.BadParameter as e:
+        console.print(f'[red]Error: {e}[/red]')
+        return
+
     if not contract_addr:
         console.print('[red]Error: Contract address not configured.[/red]')
         return
@@ -227,6 +234,12 @@ def val_vote_cancel_issue(
     """
     contract_addr = get_contract_address(contract)
     ws_endpoint, network_name = resolve_network(network, rpc_url)
+
+    try:
+        validate_issue_input_range(issue_id)
+    except click.BadParameter as e:
+        console.print(f'[red]Error: {e}[/red]')
+        return
 
     if not contract_addr:
         console.print('[red]Error: Contract address not configured.[/red]')

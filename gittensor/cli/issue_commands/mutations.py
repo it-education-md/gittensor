@@ -16,6 +16,7 @@ from rich.panel import Panel
 
 from .helpers import (
     console,
+    ensure_github_issue_for_registration,
     ensure_github_repository_exists,
     get_contract_address,
     load_config,
@@ -109,6 +110,15 @@ def issue_register(
     except (click.BadParameter, click.ClickException) as e:
         console.print(f'[red]Error: {e}[/red]')
         return
+
+    try:
+        issue_is_open = ensure_github_issue_for_registration(repo, issue_number)
+    except (click.BadParameter, click.ClickException) as e:
+        console.print(f'[red]Error: {e}[/red]')
+        return
+
+    if not issue_is_open:
+        console.print(f'[yellow]Warning: Issue #{issue_number} is already closed[/yellow]')
 
     try:
         bounty_amount, bounty_alpha = validate_bounty_amount(bounty)

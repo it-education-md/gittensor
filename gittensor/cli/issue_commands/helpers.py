@@ -34,8 +34,18 @@ MIN_BOUNTY_ALPHA = Decimal('10')
 MIN_BOUNTY_RAW = int(MIN_BOUNTY_ALPHA * ALPHA_RAW_UNIT)
 
 # Issue input bounds: 1 <= value < 1_000_000
+# `value` is either a GitHub issue number or an on-chain issue ID.
 ISSUE_INPUT_MIN = 1
 ISSUE_INPUT_MAX = 999999
+
+OWNER_NAME_PATTERN = re.compile(r'^[A-Za-z0-9-]+$')
+REPOSITORY_NAME_PATTERN = re.compile(r'^[A-Za-z0-9._-]+$')
+
+# Contract storage decoding constants
+CHILD_STORAGE_KEYS_PAGE_SIZE = 100
+PACKED_STORAGE_KEY_SUFFIX = '00000000'
+PACKED_STORAGE_MIN_BYTES = 74
+ISSUES_MAPPING_ROOT_KEY = '52789899'
 
 console = Console()
 
@@ -163,28 +173,6 @@ def resolve_network(network: Optional[str] = None, rpc_url: Optional[str] = None
     return NETWORK_MAP['finney'], 'finney'
 
 
-def get_ws_endpoint(cli_value: str = '') -> str:
-    """
-    Get WebSocket endpoint from CLI arg, env, or config file.
-
-    Deprecated: prefer resolve_network() for new code.
-
-    Args:
-        cli_value: Value passed via --rpc-url CLI option
-
-    Returns:
-        WebSocket endpoint string
-    """
-    if cli_value and cli_value != 'wss://entrypoint-finney.opentensor.ai:443':
-        return cli_value
-
-    config = load_config()
-    if config.get('ws_endpoint'):
-        return config['ws_endpoint']
-
-    return cli_value  # Return CLI default
-
-
 def _validate_repository_full_name(repo_input: str) -> str:
     """
     Validate repository full name in strict owner/repo format.
@@ -196,9 +184,6 @@ def _validate_repository_full_name(repo_input: str) -> str:
         str: Validated repository full name.
     """
     repo_format_hint = 'expected format: owner/repo (e.g., entrius/gittensor)'
-    owner_name_pattern = re.compile(r'^[A-Za-z0-9-]+$')
-    repository_name_pattern = re.compile(r'^[A-Za-z0-9._-]+$')
-
     def _raise_repo_validation_error(value: str) -> None:
         raise click.BadParameter(
             f"Invalid repository '{value}'; {repo_format_hint}",
@@ -221,10 +206,10 @@ def _validate_repository_full_name(repo_input: str) -> str:
     if not owner or not repo:
         _raise_repo_validation_error(repo_input)
 
-    if not owner_name_pattern.fullmatch(owner):
+    if not OWNER_NAME_PATTERN.fullmatch(owner):
         _raise_repo_validation_error(repo_input)
 
-    if not repository_name_pattern.fullmatch(repo):
+    if not REPOSITORY_NAME_PATTERN.fullmatch(repo):
         _raise_repo_validation_error(repo_input)
 
     return repo_input
@@ -408,22 +393,27 @@ def _read_contract_packed_storage(substrate, contract_addr: str, verbose: bool =
         return None
 
     # Get all storage keys for this contract
-    keys_result = substrate.rpc_request('childstate_getKeysPaged', [child_key, '0x', 100, None, None])
+    keys_result = substrate.rpc_request(
+        'childstate_getKeysPaged',
+        [child_key, '0x', CHILD_STORAGE_KEYS_PAGE_SIZE, None, None],
+    )
     keys = keys_result.get('result', [])
 
     if verbose:
         console.print(f'[dim]Debug: Found {len(keys)} storage keys in contract[/dim]')
 
-    # Find the packed storage key (ends with 00000000)
+    # Find the packed storage key
     packed_key = None
     for k in keys:
-        if k.endswith('00000000'):
+        if k.endswith(PACKED_STORAGE_KEY_SUFFIX):
             packed_key = k
             break
 
     if not packed_key:
         if verbose:
-            console.print('[dim]Debug: No packed storage key (ending in 00000000) found[/dim]')
+            console.print(
+                f'[dim]Debug: No packed storage key (ending in {PACKED_STORAGE_KEY_SUFFIX}) found[/dim]'
+            )
         return None
 
     # Read the packed storage value
@@ -445,9 +435,11 @@ def _read_contract_packed_storage(substrate, contract_addr: str, verbose: bool =
     # alpha_pool: u128 (16 bytes)
     # Total: 74 bytes minimum
 
-    if len(data) < 74:
+    if len(data) < PACKED_STORAGE_MIN_BYTES:
         if verbose:
-            console.print(f'[dim]Debug: Packed storage too small ({len(data)} < 74 bytes)[/dim]')
+            console.print(
+                f'[dim]Debug: Packed storage too small ({len(data)} < {PACKED_STORAGE_MIN_BYTES} bytes)[/dim]'
+            )
         return None
 
     offset = 0
@@ -520,9 +512,8 @@ def _read_issues_from_child_storage(substrate, contract_addr: str, verbose: bool
     if verbose:
         console.print(f'[dim]Debug: next_issue_id from contract = {next_issue_id}[/dim]')
 
-    # Sanity check: next_issue_id should be reasonable (< 1 million for any real deployment)
-    MAX_REASONABLE_ISSUE_ID = 1_000_000
-    if next_issue_id > MAX_REASONABLE_ISSUE_ID:
+    # Sanity check: highest existing issue id (next_issue_id - 1) must respect issue input bounds.
+    if (next_issue_id - 1) > ISSUE_INPUT_MAX:
         console.print(f'[yellow]Warning: next_issue_id ({next_issue_id}) is unreasonably large.[/yellow]')
         console.print('[yellow]This may indicate a storage format mismatch. Check contract version.[/yellow]')
         return []
@@ -537,14 +528,16 @@ def _read_issues_from_child_storage(substrate, contract_addr: str, verbose: bool
     status_names = ['Registered', 'Active', 'Completed', 'Cancelled']
 
     # Iterate through all issue IDs (1 to next_issue_id - 1)
-    # Issues mapping root key is '52789899'
+    # Issues mapping root key for IssueBountyManager storage
     if verbose:
-        console.print(f'[dim]Debug: Reading issues 1 to {next_issue_id - 1} using mapping key 52789899[/dim]')
+        console.print(
+            f'[dim]Debug: Reading issues 1 to {next_issue_id - 1} using mapping key {ISSUES_MAPPING_ROOT_KEY}[/dim]'
+        )
 
     for issue_id in range(1, next_issue_id):
         # SCALE encode u64 as little-endian 8 bytes
         encoded_id = struct.pack('<Q', issue_id)
-        lazy_key = _compute_ink5_lazy_key('52789899', encoded_id)
+        lazy_key = _compute_ink5_lazy_key(ISSUES_MAPPING_ROOT_KEY, encoded_id)
 
         val_result = substrate.rpc_request('childstate_getStorage', [child_key, lazy_key, None])
         if not val_result.get('result'):

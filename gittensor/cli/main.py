@@ -19,7 +19,11 @@ import click
 from rich.console import Console
 from rich.table import Table
 
-from gittensor.cli.issue_commands import register_commands
+# old code for reference
+# from gittensor.cli.issue_commands import register_commands
+
+from gittensor.cli.help import StyledAliasGroup, StyledGroup
+from gittensor.cli.registry import register_commands
 
 console = Console()
 
@@ -68,14 +72,14 @@ class AliasGroup(click.Group):
                 formatter.write_dl(commands)
 
 
-@click.group(cls=AliasGroup)
+@click.group(cls=StyledAliasGroup)
 @click.version_option(version='3.2.0', prog_name='gittensor')
 def cli():
     """Gittensor CLI - Manage issue bounties and validator operations"""
     pass
 
 
-@click.group(name='config', invoke_without_command=True)
+@click.group(name='config', cls=StyledGroup, invoke_without_command=True)
 @click.pass_context
 def config_group(ctx):
     """CLI configuration management.

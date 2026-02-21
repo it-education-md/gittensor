@@ -10,6 +10,7 @@ import json
 import os
 import re
 import struct
+from contextlib import contextmanager
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, List, Optional
@@ -17,6 +18,7 @@ from urllib.request import urlopen
 
 import click
 from rich.console import Console
+from rich.panel import Panel
 from substrateinterface.utils.ss58 import ss58_decode
 
 from gittensor.constants import CONTRACT_ADDRESS
@@ -48,6 +50,97 @@ PACKED_STORAGE_MIN_BYTES = 74
 ISSUES_MAPPING_ROOT_KEY = '52789899'
 
 console = Console()
+
+
+def _build_status_markup(level: str, color: str, message: str) -> str:
+    """Build status markup while preserving message styling/highlighting."""
+    if level == 'Error':
+        return f'[bold {color}]Error:[/bold {color}] {message}'
+    if level in {'Success', 'Warning', 'Hint'}:
+        return f'[{color}]{message}[/{color}]'
+    return message
+
+
+def _print_status(level: str, color: str, message: str, title: str = '') -> None:
+    """Render a standardized status message as plain text or a panel."""
+    body_markup = _build_status_markup(level, color, message)
+
+    if not title:
+        console.print(body_markup, highlight=True)
+        return
+
+    border_style = f'bold {color}' if color != 'dim' else 'dim'
+    console.print(
+        Panel(
+            console.render_str(body_markup, highlight=True),
+            title=title,
+            title_align='left',
+            border_style=border_style,
+            expand=True,
+        ),
+        highlight=True,
+    )
+
+
+def print_success(message: str, title: str = '') -> None:
+    """Print a standardized success message."""
+    _print_status('Success', 'green', message, title=title)
+
+
+def print_warning(message: str, title: str = '') -> None:
+    """Print a standardized warning message."""
+    _print_status('Warning', 'yellow', message, title=title)
+
+
+def print_error(message: str, title: str = '') -> None:
+    """Print a standardized error message."""
+    _print_status('Error', 'red', message, title=title)
+
+
+def print_hint(message: str, title: str = '') -> None:
+    """Print a standardized hint/next-step message."""
+    _print_status('Hint', 'dim', message, title=title)
+
+
+def print_preview(message: str, title: str = 'Preview') -> None:
+    """Print a standardized preview panel."""
+    console.print(
+        Panel(
+            console.render_str(message, highlight=True),
+            title=title,
+            title_align='left',
+            border_style='blue',
+            expand=True,
+        ),
+        highlight=True,
+    )
+
+
+
+def emit_json(payload: Any, pretty: bool = True) -> None:
+    """Emit JSON for machine-friendly CLI output."""
+    click.echo(
+        json.dumps(
+            payload,
+            ensure_ascii=True,
+            sort_keys=True,
+            indent=2 if pretty else None,
+        )
+    )
+
+
+def emit_json_error(message: str, **extra: Any) -> None:
+    """Emit a standardized JSON error object."""
+    payload: dict[str, Any] = {'error': message}
+    payload.update(extra)
+    emit_json(payload)
+
+
+@contextmanager
+def with_waiting(message: str, spinner: str = 'dots'):
+    """Show a Rich status spinner while executing a block."""
+    with console.status(f'[cyan]{message}[/cyan]', spinner=spinner, spinner_style='cyan'):
+        yield
 
 
 def format_alpha(raw_amount: int, decimals: int = 2) -> str:
@@ -514,8 +607,8 @@ def _read_issues_from_child_storage(substrate, contract_addr: str, verbose: bool
 
     # Sanity check: highest existing issue id (next_issue_id - 1) must respect issue input bounds.
     if (next_issue_id - 1) > ISSUE_INPUT_MAX:
-        console.print(f'[yellow]Warning: next_issue_id ({next_issue_id}) is unreasonably large.[/yellow]')
-        console.print('[yellow]This may indicate a storage format mismatch. Check contract version.[/yellow]')
+        print_warning(f'next_issue_id ({next_issue_id}) is unreasonably large.')
+        print_warning('This may indicate a storage format mismatch. Check contract version.')
         return []
 
     # If next_issue_id is 1, no issues have been registered yet
@@ -646,11 +739,11 @@ def read_issues_from_contract(ws_endpoint: str, contract_addr: str, verbose: boo
         return _read_issues_from_child_storage(substrate, contract_addr, verbose)
 
     except ImportError as e:
-        console.print(f'[yellow]Cannot read from contract: {e}[/yellow]')
-        console.print('[dim]Install with: pip install substrate-interface[/dim]')
+        print_warning(f'Cannot read from contract: {e}')
+        print_hint('Install with: pip install substrate-interface')
         return []
     except Exception as e:
         if verbose:
             console.print(f'[dim]Debug: Connection/read error: {e}[/dim]')
-        console.print(f'[yellow]Error reading from contract: {e}[/yellow]')
+        print_warning(f'Error reading from contract: {e}')
         return []
